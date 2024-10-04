@@ -1,0 +1,38 @@
+name: Build and publish Registry Package
+
+on:
+  push:
+    tags:
+      - '*'
+
+jobs:
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get the version
+        id: get_version
+        run: echo ::set-output name=VERSION::${GITHUB_REF/refs\/tags\//}
+
+      - name: Check out repository code
+        uses: actions/checkout@v4
+
+      - name: Add private key
+        uses: webfactory/ssh-agent@v0.5.4
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Publish to Registry
+        uses: elgohr/Publish-Docker-Github-Action@v4
+        env:
+          BUILD_NAME: ${{ github.repository }}
+          BUILD_VERSION: ${{ github.ref_name }}
+          BUILD_COMMIT: ${{ github.sha }}
+        with:
+          name: ${{ github.repository }}
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+          registry: ghcr.io
+          dockerfile: Dockerfile
+          tags: ${{ steps.get_version.outputs.VERSION }}
+          buildargs: BUILD_NAME,BUILD_VERSION,BUILD_COMMIT
