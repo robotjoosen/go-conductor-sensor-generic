@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/conductor-sdk/conductor-go/sdk/model"
+	"github.com/robotjoosen/go-conductor-sensor-generic/internal/timed"
 	"log/slog"
 	"os"
 	"time"
@@ -9,11 +9,9 @@ import (
 	"github.com/conductor-sdk/conductor-go/sdk/client"
 	"github.com/conductor-sdk/conductor-go/sdk/settings"
 	"github.com/conductor-sdk/conductor-go/sdk/workflow/executor"
+	"github.com/robotjoosen/go-conductor-sensor-generic/internal/messagequeue"
 	"github.com/robotjoosen/go-config"
-)
-
-const (
-	WorkflowIdentifier = "greetings"
+	"github.com/robotjoosen/go-rabbit"
 )
 
 var (
@@ -25,9 +23,14 @@ type Settings struct {
 	ConductorURL    string       `mapstructure:"CONDUCTOR_URL" json:"conductor_url"`
 	ConductorKey    secretString `mapstructure:"CONDUCTOR_KEY" json:"conductor_key"`
 	ConductorSecret secretString `mapstructure:"CONDUCTOR_SECRET" json:"conductor_secret"`
+	RabbitMQAddress secretString `mapstructure:"MQ_ADDRESS"`
 }
 
 type secretString string
+
+func (s secretString) String() string {
+	return string(s)
+}
 
 func (s secretString) LogValue() slog.Value {
 	return slog.StringValue("***")
@@ -53,35 +56,17 @@ func main() {
 	e := executor.NewWorkflowExecutor(c)
 
 	if c == nil || e == nil {
+		slog.Error("conductor client or executor not set")
 		os.Exit(1)
 	}
 
-	t := time.NewTicker(time.Second * 10)
+	// trigger workflows every minute
+	timed.Initialise(time.Minute, e)
 
-	for {
-		slog.Info("waiting for trigger")
-
-		select {
-		case <-t.C:
-			id, err := e.StartWorkflow(
-				&model.StartWorkflowRequest{
-					Name:    WorkflowIdentifier,
-					Version: 1,
-					Input: map[string]string{
-						"name": "Gopher",
-					},
-				},
-			)
-			if err != nil {
-				slog.Error("failed to start workflow", slog.String("error", err.Error()))
-				os.Exit(1)
-			}
-
-			slog.Info("started workflow", "id", id)
-
-			channel, _ := e.MonitorExecution(id)
-			run := <-channel
-			slog.Info("output of the workflow", "output", run.Output)
-		}
+	// trigger workflows based on MQ
+	if con, err := rabbit.NewConnection(s.RabbitMQAddress.String()); err == nil {
+		messagequeue.Initialise(con, e)
 	}
+
+	<-make(chan bool)
 }
